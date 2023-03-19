@@ -1,0 +1,4 @@
+translatepy
+openai
+tenacity
+ruamel.yaml
