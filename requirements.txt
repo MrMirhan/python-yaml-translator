@@ -2,3 +2,5 @@ translatepy
 openai
 tenacity
 ruamel.yaml
+deepl-cli
+asyncio

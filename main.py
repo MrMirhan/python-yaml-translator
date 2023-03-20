@@ -7,6 +7,7 @@ import calendar
 import time
 
 from translatepy.translators import google, yandex, translatecom, microsoft, reverso, mymemory
+from DeeplTranslator import DeeplTranslator
 from OAITranslator import OAITranslator
 
 translator = None;
@@ -25,6 +26,11 @@ elif config.TRANSLATOR == "mymemory":
     translator = mymemory.MyMemoryTranslate()
 elif config.TRANSLATOR == "ai":
     translator = OAITranslator(config.OPENAI_KEY)
+elif config.TRANSLATOR == "deepl":
+    translator = DeeplTranslator()
+else:
+    print("Translator not found")
+    exit()
 
 total_translated = 0
 passed_times = []
@@ -61,6 +67,7 @@ def translate_list(base_dict, key):
             print("Total translated: ", total_translated, "Avg passed time: ", sum(passed_times) / len(passed_times), "Avg attemps: ", sum(attempted) / len(attempted), "Total passed time: ", end_timestamp - first_timestamp, end="\r")
         except Exception as e:
             print("Error", e)
+    return
         
 def translate_key(base_dict, key):
     global total_translated
@@ -94,6 +101,7 @@ def translate_key(base_dict, key):
             print("Total translated: ", total_translated, "Avg passed time: ", sum(passed_times) / len(passed_times), "Avg attemps: ", sum(attempted) / len(attempted), "Total passed time: ", end_timestamp - first_timestamp, end="\r")
         except Exception as e:
             print("Error", e)
+    return
 
 print("Translator mode:", config.TRANSLATOR)
 print("Translating to:", config.TO)
@@ -113,6 +121,7 @@ for filename in os.listdir(config.INPUT_FOLDER):
             futures = {executor.submit(translate_key, to_translate, key) for key in to_translate}
             concurrent.futures.wait(futures)
             # wait for the threads to finish
+            executor.shutdown(wait=True, cancel_futures=False)
         with open(config.OUTPUT_FOLDER + filename, 'w') as out:
             print()
             if config.TRANSLATOR == "ai":

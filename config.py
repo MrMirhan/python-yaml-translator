@@ -1,6 +1,6 @@
-NUM_WORKERS = 3
+NUM_WORKERS = 5
 TO = 'tr'
 OUTPUT_FOLDER = './done/'
 INPUT_FOLDER = './waiting/'
-TRANSLATOR = 'ai' # google, yandex, translatecom, microsoft, reverso, mymemory, ai
+TRANSLATOR = 'deepl' # google, yandex, translatecom, microsoft, reverso, mymemory, ai, deepl
 OPENAI_KEY= 'openai-api-key'
