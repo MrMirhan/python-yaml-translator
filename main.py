@@ -1,31 +1,31 @@
 import concurrent.futures
 import ruamel.yaml as yaml
 import config
-import os
+import os, io, calendar, time, sys
+from threading import Thread
 
-import calendar
-import time
-
-from translatepy.translators import google, yandex, translatecom, microsoft, reverso, mymemory
+from translatepy.translators import GoogleTranslate, YandexTranslate, TranslateComTranslate, BingTranslate, MicrosoftTranslate, ReversoTranslate, MyMemoryTranslate
 from DeeplTranslator import DeeplTranslator
 from OAITranslator import OAITranslator
 
 translator = None;
 
 if config.TRANSLATOR == "google":
-    translator = google.GoogleTranslate()
+    translator = GoogleTranslate()
 elif config.TRANSLATOR == "yandex":
-    translator = yandex.YandexTranslate()
+    translator = YandexTranslate()
 elif config.TRANSLATOR == "translatecom":
-    translator = translatecom.TranslateComTranslate()
+    translator = TranslateComTranslate()
 elif config.TRANSLATOR == "microsoft":
-    translator = microsoft.MicrosoftTranslate()
+    translator = MicrosoftTranslate()
+elif config.TRANSLATOR == "bing":
+    translator = BingTranslate()
 elif config.TRANSLATOR == "reverso":
-    translator = reverso.ReversoTranslate()
+    translator = ReversoTranslate()
 elif config.TRANSLATOR == "mymemory":
-    translator = mymemory.MyMemoryTranslate()
+    translator = MyMemoryTranslate()
 elif config.TRANSLATOR == "ai":
-    translator = OAITranslator(config.OPENAI_KEY)
+    translator = OAITranslator(config.OPENAI_KEY, config.OPENAI_ENGINE)
 elif config.TRANSLATOR == "deepl":
     translator = DeeplTranslator()
 else:
@@ -36,97 +36,88 @@ total_translated = 0
 passed_times = []
 attempted = []
 
+total_translated_files = 0
+
 first_timestamp = calendar.timegm(time.gmtime())
 
-def translate_list(base_dict, key):
+def translate_value(value):
     global total_translated
     global passed_times
     global attempted
     global first_timestamp
-    value_list = base_dict[key]
-    base_dict[key] = []
-    start_timestamp = calendar.timegm(time.gmtime())
-    for string in value_list:
+    if isinstance(value, str):
+        # translate string values
+        if value == "" or value == " " or value == None:
+            return value
+        start_timestamp = calendar.timegm(time.gmtime())
         attempts = 0
+        response = value
         while attempts < 10:
-            attempts = attempts + 1
-            translated = translator.translate(string, config.TO)
-            if translated.result != translated.source:
-                base_dict[key].append(translated.result)
-                break
-            else:
-                if attempts == 10:
-                    base_dict[key].append(translated.result)
-                    break
-        try:
-            attempted.append(attempts)
-            end_timestamp = calendar.timegm(time.gmtime())
-            passed_time = end_timestamp - start_timestamp
-            passed_times.append(passed_time)
-            total_translated = total_translated + 1
-            print("Total translated: ", total_translated, "Avg passed time: ", sum(passed_times) / len(passed_times), "Avg attemps: ", sum(attempted) / len(attempted), "Total passed time: ", end_timestamp - first_timestamp, end="\r")
-        except Exception as e:
-            print("Error", e)
-    return
-        
-def translate_key(base_dict, key):
-    global total_translated
-    global passed_times
-    global attempted
-    global first_timestamp
-    start_timestamp = calendar.timegm(time.gmtime())
-    if type(base_dict[key]) is dict:
-        for inner_key in base_dict[key]:
-            translate_key(base_dict[key], inner_key)
-    elif type(base_dict[key]) is list:
-        translate_list(base_dict, key)
+            attempts += 1
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=config.NUM_WORKERS) as executor:
+                    result = executor.submit(translator.translate, value, config.TO)
+                    if result.result().result != response:
+                        response = result.result().result
+                        break
+            except Exception as e:
+                continue
+        attempted.append(attempts)
+        end_timestamp = calendar.timegm(time.gmtime())
+        passed_time = end_timestamp - start_timestamp
+        passed_times.append(passed_time)
+        total_translated += 1
+        return response
+    elif isinstance(value, list):
+        # translate list values recursively
+        return [translate_value(item) for item in value]
+    elif isinstance(value, dict):
+        # translate dictionary values recursively
+        return {key: translate_value(val) for key, val in value.items()}
     else:
-        attempts = 0
-        while attempts < 10:
-            attempts = attempts + 1
-            translated = translator.translate(base_dict[key], config.TO)
-            if translated.result != translated.source:
-                base_dict[key] = translated.result
-                break
-            else:
-                if attempts == 10:
-                    base_dict[key] = translated.result
-                    break
+        # pass non-translatable values unchanged
+        return value
+    
+def print_progress():
+    global total_translated_files
+    global total_translated
+    global passed_times
+    global attempted
+    global first_timestamp
+    
+    while total_translated_files < len(os.listdir(config.INPUT_FOLDER)):
         try:
-            attempted.append(attempts)
             end_timestamp = calendar.timegm(time.gmtime())
-            passed_time = end_timestamp - start_timestamp
-            passed_times.append(passed_time)
-            total_translated = total_translated + 1
-            print("Total translated: ", total_translated, "Avg passed time: ", sum(passed_times) / len(passed_times), "Avg attemps: ", sum(attempted) / len(attempted), "Total passed time: ", end_timestamp - first_timestamp, end="\r")
-        except Exception as e:
-            print("Error", e)
-    return
-
-print("Translator mode:", config.TRANSLATOR)
-print("Translating to:", config.TO)
-print("Translator threads:", config.NUM_WORKERS)
-print("Input Folder:", config.INPUT_FOLDER)
-print("Output Folder:", config.OUTPUT_FOLDER)
-print("Files will be translate:", len(os.listdir(config.INPUT_FOLDER)))
-
-for filename in os.listdir(config.INPUT_FOLDER):
-    f = os.path.join(config.INPUT_FOLDER, filename)
-    if os.path.isfile(f):
-        with open(f, "r+b") as toLoad:
-            print("reading to file: ", config.INPUT_FOLDER + filename)
-            print()
-            to_translate = yaml.safe_load(toLoad)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=config.NUM_WORKERS) as executor:
-            futures = {executor.submit(translate_key, to_translate, key) for key in to_translate}
-            concurrent.futures.wait(futures)
-            # wait for the threads to finish
-            executor.shutdown(wait=True, cancel_futures=False)
-        with open(config.OUTPUT_FOLDER + filename, 'w') as out:
-            print()
+            status = f"Total translated files: {total_translated_files} Total translated: {total_translated} Avg passed time: {round(sum(passed_times) / len(passed_times), 2)} Avg attemps: {round(sum(attempted) / len(attempted), 2)} Total passed time: {end_timestamp - first_timestamp}"
             if config.TRANSLATOR == "ai":
-                print("Total translated: ", total_translated, "Avg passed time: ", sum(passed_times) / len(passed_times), "Avg attemps: ", sum(attempted) / len(attempted), "Total passed time: ", calendar.timegm(time.gmtime()) - first_timestamp, "Total spent Tokens: ", translator.spentTokens)
-            else:
-                print("Total translated: ", total_translated, "Avg passed time: ", sum(passed_times) / len(passed_times), "Avg attemps: ", sum(attempted) / len(attempted), "Total passed time: ", calendar.timegm(time.gmtime()) - first_timestamp)
+                status += f" Total spent Tokens: {translator.spentTokens}"
+            print(status)
+            sys.stdout.write("\033[F")
+            sys.stdout.write("\033[K")
+        except:
+            pass
+        time.sleep(0.5)
+
+def main():
+    global total_translated_files
+    thread = Thread(target=print_progress, args=( ), daemon=True)
+    thread.start()
+    # loop over files in input directory
+    for filename in os.listdir(config.INPUT_FOLDER):
+        # read YAML file
+        with open(os.path.join(config.INPUT_FOLDER, filename), 'r+b') as f:
+            print("reading to file: ", config.INPUT_FOLDER + filename)
+            data = yaml.safe_load(f)
+
+        # translate YAML data
+        translated_data = translate_value(data)
+
+        # save translated YAML data to output file
+        with io.open(os.path.join(config.OUTPUT_FOLDER, filename), 'w', encoding='utf-8') as f:
             print("writing to file: ", config.OUTPUT_FOLDER + filename)
-            yaml.dump(to_translate, out, default_flow_style=False, allow_unicode=True)
+            yaml.dump(translated_data, f, default_flow_style=False, allow_unicode=True)
+            total_translated_files = total_translated_files + 1
+    thread.join()
+
+if __name__ == "__main__":
+    main()
